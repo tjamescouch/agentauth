@@ -1,0 +1,18 @@
+{
+  "name": "agentauth",
+  "version": "0.1.0",
+  "description": "Localhost HTTP proxy for injecting auth headers — agents never see API keys",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "agentauth": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test --experimental-strip-types agentauth.test.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["auth", "proxy", "agents", "secrets"],
+  "author": "James Couch",
+  "license": "MIT"
+}
