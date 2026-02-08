@@ -36,7 +36,7 @@ export class AuthProxy {
         this.handleRequest(req, res);
       });
 
-      this.server.listen(this.config.port, () => {
+      this.server.listen(this.config.port, '127.0.0.1', () => {
         resolve();
       });
     });
@@ -82,7 +82,25 @@ export class AuthProxy {
     }
 
     const backendName = url.substring(1, slashIdx);
-    const targetPath = url.substring(slashIdx);
+    const rawPath = url.substring(slashIdx);
+
+    // Decode URL-encoded characters and reject path traversal
+    let targetPath: string;
+    try {
+      targetPath = decodeURIComponent(rawPath.split('?')[0]);
+    } catch {
+      this.deny(res, 'invalid_path', `Malformed URL encoding: ${rawPath}`, method, url);
+      return;
+    }
+
+    if (targetPath.includes('..')) {
+      this.deny(res, 'path_traversal', `Path traversal rejected: ${targetPath}`, method, url);
+      return;
+    }
+
+    // Re-append query string for forwarding
+    const qIdx = rawPath.indexOf('?');
+    const fullTargetPath = qIdx !== -1 ? targetPath + rawPath.substring(qIdx) : targetPath;
 
     const backend = this.config.backends[backendName];
     if (!backend) {
@@ -90,14 +108,14 @@ export class AuthProxy {
       return;
     }
 
-    // Check allowed paths
+    // Check allowed paths (decoded path without query string)
     if (!isPathAllowed(targetPath, backend.allowedPaths)) {
       this.deny(res, 'path_denied', `Path not allowed: ${targetPath}`, method, url, backendName);
       return;
     }
 
-    // Forward request
-    this.forward(req, res, backend, backendName, targetPath, method);
+    // Forward request (use fullTargetPath to preserve query string)
+    this.forward(req, res, backend, backendName, fullTargetPath, method);
   }
 
   /**
