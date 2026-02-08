@@ -5,6 +5,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import http from 'http';
+import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -408,6 +409,122 @@ describe('AuthProxy', () => {
     const port = (server.address() as any).port;
 
     const resp = await fetch(`http://localhost:${port}/noprefix`);
+    assert.strictEqual(resp.status, 403);
+    const data = JSON.parse(resp.body);
+    assert.strictEqual(data.error, 'invalid_path');
+
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  test('rejects path traversal via URL encoding', async () => {
+    const proxy = new AuthProxy({
+      config: {
+        port: 0,
+        backends: {
+          myapi: {
+            target: `http://localhost:${upstreamPort}`,
+            headers: {},
+            allowedPaths: ['/v1/*'],
+          },
+        },
+      },
+    });
+
+    const server = http.createServer((req, res) => {
+      (proxy as any).handleRequest(req, res);
+    });
+
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as any).port;
+
+    // Use raw sockets since Node's http.request normalizes %2e%2e before sending
+    function rawRequest(rawPath: string): Promise<{ status: number; body: string }> {
+      return new Promise((resolve, reject) => {
+        const sock = net.connect(port, '127.0.0.1', () => {
+          sock.write(`GET ${rawPath} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+        });
+        let data = '';
+        sock.on('data', (d: Buffer) => data += d.toString());
+        sock.on('end', () => {
+          const parts = data.split('\r\n');
+          const statusLine = parts[0];
+          const status = parseInt(statusLine.split(' ')[1]);
+          const body = data.split('\r\n\r\n').slice(1).join('\r\n\r\n');
+          // Handle chunked transfer encoding — extract the actual JSON
+          const lines = body.split('\r\n').filter(l => l.length > 0 && !/^[0-9a-f]+$/i.test(l));
+          resolve({ status, body: lines.join('') });
+        });
+        sock.on('error', reject);
+      });
+    }
+
+    // Encoded ../admin should be rejected
+    const resp = await rawRequest('/myapi/v1/%2e%2e/admin');
+    assert.strictEqual(resp.status, 403);
+    const data = JSON.parse(resp.body);
+    assert.strictEqual(data.error, 'path_traversal');
+
+    // ..%2f (encoded slash) should also be rejected
+    const resp2 = await rawRequest('/myapi/v1/..%2fadmin');
+    assert.strictEqual(resp2.status, 403);
+    const data2 = JSON.parse(resp2.body);
+    assert.strictEqual(data2.error, 'path_traversal');
+
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  test('handles query strings correctly', async () => {
+    const proxy = new AuthProxy({
+      config: {
+        port: 0,
+        backends: {
+          myapi: {
+            target: `http://localhost:${upstreamPort}`,
+            headers: {},
+            allowedPaths: ['/v1/messages'],
+          },
+        },
+      },
+    });
+
+    const server = http.createServer((req, res) => {
+      (proxy as any).handleRequest(req, res);
+    });
+
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as any).port;
+
+    // Path with query string should match allowedPaths on the path portion only
+    const resp = await fetch(`http://localhost:${port}/myapi/v1/messages?model=claude-3`);
+    assert.strictEqual(resp.status, 200);
+    const data = JSON.parse(resp.body);
+    assert.strictEqual(data.url, '/v1/messages?model=claude-3');
+
+    await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  test('rejects malformed URL encoding', async () => {
+    const proxy = new AuthProxy({
+      config: {
+        port: 0,
+        backends: {
+          myapi: {
+            target: `http://localhost:${upstreamPort}`,
+            headers: {},
+          },
+        },
+      },
+    });
+
+    const server = http.createServer((req, res) => {
+      (proxy as any).handleRequest(req, res);
+    });
+
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as any).port;
+
+    // Malformed percent encoding — %ZZ is invalid
+    const resp = await fetch(`http://localhost:${port}/myapi/v1/%ZZ`);
     assert.strictEqual(resp.status, 403);
     const data = JSON.parse(resp.body);
     assert.strictEqual(data.error, 'invalid_path');

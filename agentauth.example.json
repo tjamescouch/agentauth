@@ -1,0 +1,26 @@
+{
+  "port": 9999,
+  "auditLog": "./audit.log",
+  "backends": {
+    "anthropic": {
+      "target": "https://api.anthropic.com",
+      "headers": {
+        "x-api-key": "$ANTHROPIC_API_KEY",
+        "anthropic-version": "2023-06-01"
+      },
+      "allowedPaths": [
+        "/v1/messages"
+      ]
+    },
+    "github": {
+      "target": "https://api.github.com",
+      "headers": {
+        "authorization": "$GITHUB_TOKEN_BEARER",
+        "accept": "application/vnd.github+json"
+      },
+      "allowedPaths": [
+        "/repos/tjamescouch/*"
+      ]
+    }
+  }
+}
