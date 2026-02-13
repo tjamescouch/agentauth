@@ -74,6 +74,48 @@ export class AuthProxy {
       return;
     }
 
+    // Credential endpoint — returns auth token for git credential helpers.
+    // Only serves localhost requests (proxy is already localhost-only).
+    const credMatch = url.match(/^\/agentauth\/credential\/([^/]+)$/);
+    if (credMatch) {
+      const backendName = credMatch[1];
+      const backend = this.config.backends[backendName];
+      if (!backend) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unknown_backend', message: `No backend: ${backendName}` }));
+        return;
+      }
+
+      // Look for authorization header (case-insensitive search)
+      let token: string | null = null;
+      for (const [key, value] of Object.entries(backend.headers)) {
+        if (key.toLowerCase() === 'authorization') {
+          // Strip "Bearer " prefix if present
+          token = value.startsWith('Bearer ') ? value.slice(7) : value;
+          break;
+        }
+      }
+
+      if (!token) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'no_credential', message: `No authorization header configured for ${backendName}` }));
+        return;
+      }
+
+      this.audit({
+        ts: new Date().toISOString(),
+        backend: backendName,
+        method,
+        path: '/agentauth/credential',
+        status: 200,
+        allowed: true,
+      });
+
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ token }));
+      return;
+    }
+
     // Parse /{backend}/{path}
     const slashIdx = url.indexOf('/', 1);
     if (slashIdx === -1) {
