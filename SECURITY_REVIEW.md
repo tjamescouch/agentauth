@@ -55,11 +55,11 @@ this.server.listen(this.config.port, '127.0.0.1', () => { ... });
 
 | ID | Severity | Status |
 |----|----------|--------|
-| AA-001 | MEDIUM | **Fixed** — proxy.ts:39 now binds to `127.0.0.1` |
-| AA-002 | MEDIUM | **Fixed** — `decodeURIComponent` + `..` rejection in proxy.ts:89-98 |
-| AA-003 | LOW | **Fixed** — splits on `?` before path check in proxy.ts:90,103 |
-| AA-004 | LOW | Open |
-| AA-005 | INFO | Open |
-| AA-006 | INFO | Open |
+| AA-001 | MEDIUM | Fixed — binds to 127.0.0.1 |
+| AA-002 | MEDIUM | Fixed — decodeURIComponent + `..` rejection |
+| AA-003 | LOW | Fixed — splits on `?` before path check |
+| AA-004 | LOW | Fixed — response header allowlist |
+| AA-005 | INFO | Fixed — configurable maxBodyBytes per backend (default 10 MB) |
+| AA-006 | INFO | Fixed — generic "upstream unavailable" returned to agent, real error in audit log only |
 
-**Status**: All MEDIUM findings fixed. AA-004 (response header stripping), AA-005 (request size limit), AA-006 (error message sanitization) remain open as low-priority hardening items.
+All findings addressed.
