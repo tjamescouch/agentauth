@@ -61,13 +61,16 @@ export function loadConfig(configPath: string): AgentAuthConfig {
     }
 
     for (const [key, value] of Object.entries(backend.headers)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        const envVar = value.slice(1);
-        const envValue = process.env[envVar];
-        if (!envValue) {
-          throw new Error(`Backend "${name}" header "${key}" references $${envVar} but it is not set`);
-        }
-        backend.headers[key] = envValue;
+      if (typeof value === 'string' && value.includes('$')) {
+        // Resolve $ENV_VAR references in header values.
+        // Supports both "$VAR" (entire value) and "Bearer $VAR" (embedded).
+        backend.headers[key] = value.replace(/\$([A-Z_][A-Z0-9_]*)/g, (match, envVar) => {
+          const envValue = process.env[envVar];
+          if (!envValue) {
+            throw new Error(`Backend "${name}" header "${key}" references $${envVar} but it is not set`);
+          }
+          return envValue;
+        });
       }
     }
   }

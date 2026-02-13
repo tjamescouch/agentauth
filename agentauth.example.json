@@ -12,6 +12,16 @@
         "/v1/messages"
       ]
     },
+    "openai": {
+      "target": "https://api.openai.com",
+      "headers": {
+        "authorization": "Bearer $OPENAI_API_KEY"
+      },
+      "allowedPaths": [
+        "/v1/chat/completions",
+        "/v1/responses"
+      ]
+    },
     "github": {
       "target": "https://api.github.com",
       "headers": {
