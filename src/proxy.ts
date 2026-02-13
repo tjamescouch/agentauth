@@ -17,6 +17,23 @@ export interface ProxyOptions {
   auditLog?: AuditLog;
 }
 
+/** Default max request body size: 10 MiB (AA-005) */
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+/** Response headers stripped before forwarding to agents (AA-004) */
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  'server',
+  'x-request-id',
+  'x-trace-id',
+  'x-cloud-trace-context',
+  'via',
+  'x-envoy-upstream-service-time',
+  'cf-ray',
+  'cf-cache-status',
+  'alt-svc',
+  'strict-transport-security',
+]);
+
 export class AuthProxy {
   private server: http.Server | null = null;
   private config: AgentAuthConfig;
@@ -210,14 +227,21 @@ export class AuthProxy {
           allowed: true,
         });
 
-        // Forward response
-        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        // Forward response with stripped headers (AA-004)
+        const safeHeaders: Record<string, string | string[] | undefined> = {};
+        for (const [key, value] of Object.entries(proxyRes.headers)) {
+          if (!STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) {
+            safeHeaders[key] = value;
+          }
+        }
+        res.writeHead(proxyRes.statusCode || 502, safeHeaders);
         proxyRes.pipe(res);
       }
     );
 
     proxyReq.on('error', (err) => {
       const durationMs = Date.now() - startTime;
+      // Log real error for audit, return generic message to agent (AA-006)
       this.audit({
         ts: new Date().toISOString(),
         backend: backendName,
@@ -230,10 +254,32 @@ export class AuthProxy {
       });
 
       res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'upstream_error', message: err.message }));
+      res.end(JSON.stringify({ error: 'upstream_error', message: 'upstream unavailable' }));
     });
 
-    // Pipe request body
+    // Pipe request body with size limit (AA-005)
+    const maxBody = backend.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+    let bodyBytes = 0;
+    req.on('data', (chunk: Buffer) => {
+      bodyBytes += chunk.length;
+      if (bodyBytes > maxBody) {
+        req.destroy();
+        proxyReq.destroy();
+        this.audit({
+          ts: new Date().toISOString(),
+          backend: backendName,
+          method,
+          path: targetPath,
+          status: 413,
+          allowed: false,
+          reason: `body exceeded ${maxBody} bytes`,
+        });
+        if (!res.headersSent) {
+          res.writeHead(413, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'body_too_large', message: `Request body exceeds ${maxBody} byte limit` }));
+        }
+      }
+    });
     req.pipe(proxyReq);
   }
 

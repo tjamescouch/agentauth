@@ -22,6 +22,7 @@ export interface BackendConfig {
   target: string;
   headers: Record<string, string>;
   allowedPaths?: string[];
+  maxBodyBytes?: number;
 }
 
 export interface AgentAuthConfig {
