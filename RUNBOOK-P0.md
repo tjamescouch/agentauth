@@ -14,52 +14,31 @@ Agents are running with `CLAUDE_CODE_OAUTH_TOKEN` as a plaintext environment var
 
 All steps run on the **host** (Mac Studio), not inside agent containers.
 
-### 1. Build agentauth (if not already built)
+### 1. Build agentauth
 
 ```bash
 cd /path/to/agentauth
 npm install && npm run build
 ```
 
-### 2. Create agentauth.json config
-
-Copy from example and verify:
-
-```bash
-cp agentauth.example.json agentauth.json
-```
-
-Contents should be:
-```json
-{
-  "port": 9999,
-  "auditLog": "./audit.log",
-  "backends": {
-    "anthropic": {
-      "target": "https://api.anthropic.com",
-      "headers": {
-        "x-api-key": "$ANTHROPIC_API_KEY",
-        "anthropic-version": "2023-06-01"
-      },
-      "allowedPaths": [
-        "/v1/messages"
-      ]
-    }
-  }
-}
-```
-
-### 3. Set the real API key on the HOST only
+### 2. Set the real API key on the HOST only
 
 ```bash
 # On the host, NOT in agent env
 export ANTHROPIC_API_KEY="sk-ant-..."  # real key
 ```
 
-### 4. Start the proxy
+### 3. Generate config and start the proxy
 
 ```bash
-node dist/index.js agentauth.json &
+agentauth init        # auto-detects ANTHROPIC_API_KEY, generates agentauth.json
+agentauth start       # daemonizes proxy, writes PID file + log
+agentauth status      # verify it's running
+```
+
+Or with the LaunchAgent for auto-start on login (macOS):
+```bash
+agentauth start --install   # starts + installs LaunchAgent plist
 ```
 
 Verify:
@@ -117,7 +96,7 @@ If proxy fails, agents can temporarily fall back to direct key injection. Set `C
 
 ## Post-fix
 
-- [ ] Start agentauth proxy as a system service (launchd on macOS)
+- [x] Start agentauth proxy as a system service (launchd on macOS) — `agentauth start --install`
 - [ ] Add proxy health check to `thesystem doctor`
-- [ ] Wire envwatcher daemon to alert if raw keys reappear
+- [x] envwatcher / doctor to alert if raw keys reappear — `agentauth doctor`
 - [ ] Update agentctl-swarm spawn templates to use proxy by default
