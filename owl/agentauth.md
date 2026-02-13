@@ -29,9 +29,10 @@ The HTTP reverse proxy server.
 - Validate paths against allowedPaths glob patterns
 - Reject path traversal (decode URL encoding, reject `..` segments)
 - Enforce request body size limits per-backend (default 10 MiB)
-- Filter response headers (allowlist: content-type, content-length, cache-control, etag, vary, transfer-encoding, date, content-encoding)
+- Strip response headers that leak upstream info (server, x-request-id, via, cf-ray, etc.)
 - Sanitize upstream error messages (agent sees "upstream unavailable", real error goes to audit)
 - Health endpoint: `GET /agentauth/health` returns `{ status, backends, port }`
+- Credential endpoint: `GET /agentauth/credential/{backend}` returns auth token for git credential helpers
 
 **Interfaces:**
 - Exposes: HTTP server on `{bind}:{port}` (default `127.0.0.1:9999`)
@@ -91,6 +92,48 @@ NDJSON append-only audit logging.
 }
 ```
 
+### env-doctor
+
+Startup health check for agent environments.
+
+**Capabilities:**
+- Scan `process.env` for vars matching secret name patterns (key, token, secret, password, credential, auth, bearer, private)
+- Identify known secret value patterns by prefix (`sk-ant-`, `sk-`, `ghp_`, `gho_`, `ghs_`, `AKIA`, `xoxb-`, `eyJ`)
+- Skip known-safe names (`TERM`, `SSH_AUTH_SOCK`, etc.) and safe values (`proxy-managed`, `placeholder`, `none`)
+- Print formatted warning box to stderr with redacted findings
+- Exit with code 1 if secrets found (for CI/pre-start checks)
+
+**Interfaces:**
+- Exposes: `envDoctor(): Finding[]` (programmatic), standalone CLI `node dist/env-doctor.js`
+- Depends on: nothing (standalone module)
+
+**Invariants:**
+- Never logs actual secret values — always redacted (first 4 chars + `***`)
+- Warns but does not block — agents can still start (defense in depth, not gatekeeping)
+- Known-safe values like `proxy-managed` are never flagged
+
+### cli
+
+Turnkey subcommand router for managing the proxy.
+
+**Capabilities:**
+- `agentauth init` — generate config from detected API keys in environment
+- `agentauth start` — spawn proxy as background daemon with PID tracking
+- `agentauth stop` — graceful shutdown (SIGTERM → SIGKILL fallback)
+- `agentauth status` — check PID + health endpoint
+- `agentauth doctor` — full health check (exposed secrets, proxy running, config, ANTHROPIC_BASE_URL, LaunchAgent)
+- `agentauth run` — foreground mode (legacy)
+- `agentauth start --install` — install macOS LaunchAgent for auto-start on login
+
+**Interfaces:**
+- Exposes: CLI subcommands via `agentauth <command> [options]`
+- Depends on: proxy (for daemon spawning), config (for init generation)
+
+**Invariants:**
+- Stale PID files are cleaned up automatically
+- LaunchAgent install is macOS-only (`process.platform === 'darwin'`)
+- Legacy `agentauth config.json` syntax still works (backwards compatible)
+
 ## Configuration Format
 
 ```json
@@ -142,10 +185,12 @@ Agent                    agentauth proxy              Upstream API
 ### Bare metal (Layer 0)
 1. `npm install && npm run build`
 2. Export secrets on host: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN_BEARER`
-3. `agentauth agentauth.json`
-4. Verify: `curl http://localhost:9999/agentauth/health`
-5. Spawn agents with `ANTHROPIC_BASE_URL=http://localhost:9999/anthropic` and `ANTHROPIC_API_KEY=proxy-managed`
-6. Strip real keys from agent environment (`env -i`)
+3. `agentauth init` (generates config from detected keys)
+4. `agentauth start` (background daemon) or `agentauth start --install` (+ macOS LaunchAgent)
+5. Verify: `agentauth status` or `curl http://localhost:9999/agentauth/health`
+6. Spawn agents with `ANTHROPIC_BASE_URL=http://localhost:9999/anthropic` and `ANTHROPIC_API_KEY=proxy-managed`
+7. Strip real keys from agent environment (`env -i`)
+8. Verify agent env: `agentauth doctor`
 
 ### Podman containers
 Same as bare metal, but agents reach proxy via `http://host.containers.internal:9999/anthropic`.
