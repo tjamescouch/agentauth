@@ -55,11 +55,11 @@ this.server.listen(this.config.port, '127.0.0.1', () => { ... });
 
 | ID | Severity | Status |
 |----|----------|--------|
-| AA-001 | MEDIUM | Open — must fix before deploy |
-| AA-002 | MEDIUM | Open — must fix before deploy |
-| AA-003 | LOW | Open |
+| AA-001 | MEDIUM | **Fixed** — proxy.ts:39 now binds to `127.0.0.1` |
+| AA-002 | MEDIUM | **Fixed** — `decodeURIComponent` + `..` rejection in proxy.ts:89-98 |
+| AA-003 | LOW | **Fixed** — splits on `?` before path check in proxy.ts:90,103 |
 | AA-004 | LOW | Open |
 | AA-005 | INFO | Open |
 | AA-006 | INFO | Open |
 
-**Recommendation**: Fix AA-001 and AA-002 before deploying agentauth in any multi-agent environment. AA-001 is a one-line fix. AA-002 requires adding URL normalization.
+**Status**: All MEDIUM findings fixed. AA-004 (response header stripping), AA-005 (request size limit), AA-006 (error message sanitization) remain open as low-priority hardening items.

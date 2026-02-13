@@ -26,6 +26,7 @@ export interface BackendConfig {
 
 export interface AgentAuthConfig {
   port: number;
+  bind: string;
   backends: Record<string, BackendConfig>;
   auditLog?: string;
 }
@@ -47,6 +48,7 @@ export function loadConfig(configPath: string): AgentAuthConfig {
   }
 
   config.port = config.port || 9999;
+  config.bind = config.bind || '127.0.0.1';
 
   // Resolve environment variables in header values
   for (const [name, backend] of Object.entries(config.backends)) {

@@ -31,6 +31,7 @@ Usage: agentauth [options] [config.json]
 Options:
   --help, -h    Show this help
   --port, -p    Override port from config
+  --bind, -b    Override bind address (default: 127.0.0.1)
 
 Config file format (JSON):
   {
@@ -54,10 +55,14 @@ Agents call http://localhost:PORT/{backend}/path to proxy requests.
   // Find config path
   let configPath = 'agentauth.json';
   let portOverride: number | null = null;
+  let bindOverride: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--port' || args[i] === '-p') {
       portOverride = parseInt(args[i + 1]);
+      i++;
+    } else if (args[i] === '--bind' || args[i] === '-b') {
+      bindOverride = args[i + 1];
       i++;
     } else if (!args[i].startsWith('-')) {
       configPath = args[i];
@@ -75,6 +80,9 @@ Agents call http://localhost:PORT/{backend}/path to proxy requests.
 
   if (portOverride) {
     config.port = portOverride;
+  }
+  if (bindOverride) {
+    config.bind = bindOverride;
   }
 
   // Set up audit log
@@ -100,7 +108,7 @@ Agents call http://localhost:PORT/{backend}/path to proxy requests.
   await proxy.start();
 
   const backends = Object.keys(config.backends);
-  console.log(`agentauth proxy listening on http://localhost:${config.port}`);
+  console.log(`agentauth proxy listening on http://${config.bind}:${config.port}`);
   console.log(`Backends: ${backends.join(', ')}`);
   for (const name of backends) {
     console.log(`  /${name}/* → ${config.backends[name].target}`);
