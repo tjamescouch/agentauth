@@ -12,26 +12,6 @@ import { URL } from 'url';
 import { AgentAuthConfig, BackendConfig, isPathAllowed } from './config.js';
 import { AuditLog, AuditEntry } from './audit.js';
 
-/** Default max request body size: 10 MB */
-const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
-
-/** Response headers safe to forward to the agent. */
-const ALLOWED_RESPONSE_HEADERS = new Set([
-  'content-type',
-  'content-length',
-  'content-encoding',
-  'transfer-encoding',
-  'cache-control',
-  'date',
-  'etag',
-  'vary',
-]);
-
-export interface ProxyOptions {
-  config: AgentAuthConfig;
-  auditLog?: AuditLog;
-}
-
 /** Default max request body size: 10 MiB (AA-005) */
 const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
@@ -48,6 +28,11 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   'alt-svc',
   'strict-transport-security',
 ]);
+
+export interface ProxyOptions {
+  config: AgentAuthConfig;
+  auditLog?: AuditLog;
+}
 
 export class AuthProxy {
   private server: http.Server | null = null;
