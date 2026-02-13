@@ -17,6 +17,7 @@ import { cmdInit, cmdStart, cmdStop, cmdStatus, cmdDoctor, showHelp } from './cl
 export { loadConfig, isPathAllowed } from './config.js';
 export { AuditLog } from './audit.js';
 export { AuthProxy } from './proxy.js';
+export { envDoctor } from './env-doctor.js';
 export type { AgentAuthConfig, BackendConfig } from './config.js';
 export type { AuditEntry } from './audit.js';
 export type { ProxyOptions } from './proxy.js';

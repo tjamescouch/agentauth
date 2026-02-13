@@ -1,6 +1,6 @@
 {
   "name": "agentauth",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Localhost HTTP proxy for injecting auth headers — agents never see API keys",
   "type": "module",
   "main": "dist/index.js",
@@ -20,9 +20,10 @@
   ],
   "author": "James Couch",
   "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^25.2.3",
-    "tsx": "^4.21.0",
+  "dependencies": {
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3"
   }
 }

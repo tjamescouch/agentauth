@@ -32,6 +32,23 @@ export interface ProxyOptions {
   auditLog?: AuditLog;
 }
 
+/** Default max request body size: 10 MiB (AA-005) */
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+/** Response headers stripped before forwarding to agents (AA-004) */
+const STRIPPED_RESPONSE_HEADERS = new Set([
+  'server',
+  'x-request-id',
+  'x-trace-id',
+  'x-cloud-trace-context',
+  'via',
+  'x-envoy-upstream-service-time',
+  'cf-ray',
+  'cf-cache-status',
+  'alt-svc',
+  'strict-transport-security',
+]);
+
 export class AuthProxy {
   private server: http.Server | null = null;
   private config: AgentAuthConfig;
@@ -86,6 +103,48 @@ export class AuthProxy {
         backends: Object.keys(this.config.backends),
         port: this.config.port,
       }));
+      return;
+    }
+
+    // Credential endpoint — returns auth token for git credential helpers.
+    // Only serves localhost requests (proxy is already localhost-only).
+    const credMatch = url.match(/^\/agentauth\/credential\/([^/]+)$/);
+    if (credMatch) {
+      const backendName = credMatch[1];
+      const backend = this.config.backends[backendName];
+      if (!backend) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unknown_backend', message: `No backend: ${backendName}` }));
+        return;
+      }
+
+      // Look for authorization header (case-insensitive search)
+      let token: string | null = null;
+      for (const [key, value] of Object.entries(backend.headers)) {
+        if (key.toLowerCase() === 'authorization') {
+          // Strip "Bearer " prefix if present
+          token = value.startsWith('Bearer ') ? value.slice(7) : value;
+          break;
+        }
+      }
+
+      if (!token) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'no_credential', message: `No authorization header configured for ${backendName}` }));
+        return;
+      }
+
+      this.audit({
+        ts: new Date().toISOString(),
+        backend: backendName,
+        method,
+        path: '/agentauth/credential',
+        status: 200,
+        allowed: true,
+      });
+
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ token }));
       return;
     }
 
@@ -183,10 +242,10 @@ export class AuthProxy {
           allowed: true,
         });
 
-        // Forward response with filtered headers (AA-004)
+        // Forward response with stripped headers (AA-004)
         const safeHeaders: Record<string, string | string[] | undefined> = {};
         for (const [key, value] of Object.entries(proxyRes.headers)) {
-          if (ALLOWED_RESPONSE_HEADERS.has(key.toLowerCase())) {
+          if (!STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) {
             safeHeaders[key] = value;
           }
         }
@@ -197,7 +256,7 @@ export class AuthProxy {
 
     proxyReq.on('error', (err) => {
       const durationMs = Date.now() - startTime;
-      // Log real error for operators, return generic message to agent (AA-006)
+      // Log real error for audit, return generic message to agent (AA-006)
       this.audit({
         ts: new Date().toISOString(),
         backend: backendName,
@@ -209,18 +268,16 @@ export class AuthProxy {
         reason: `upstream error: ${err.message}`,
       });
 
-      if (!res.headersSent) {
-        res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: 'upstream_error', message: 'upstream unavailable' }));
-      }
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'upstream_error', message: 'upstream unavailable' }));
     });
 
     // Pipe request body with size limit (AA-005)
     const maxBody = backend.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-    let received = 0;
+    let bodyBytes = 0;
     req.on('data', (chunk: Buffer) => {
-      received += chunk.length;
-      if (received > maxBody) {
+      bodyBytes += chunk.length;
+      if (bodyBytes > maxBody) {
         req.destroy();
         proxyReq.destroy();
         this.audit({
@@ -236,16 +293,9 @@ export class AuthProxy {
           res.writeHead(413, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'body_too_large', message: `Request body exceeds ${maxBody} byte limit` }));
         }
-        return;
       }
-      proxyReq.write(chunk);
     });
-    req.on('end', () => {
-      proxyReq.end();
-    });
-    req.on('error', () => {
-      proxyReq.destroy();
-    });
+    req.pipe(proxyReq);
   }
 
   /**
