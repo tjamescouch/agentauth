@@ -12,6 +12,21 @@ import { URL } from 'url';
 import { AgentAuthConfig, BackendConfig, isPathAllowed } from './config.js';
 import { AuditLog, AuditEntry } from './audit.js';
 
+/** Default max request body size: 10 MB */
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+/** Response headers safe to forward to the agent. */
+const ALLOWED_RESPONSE_HEADERS = new Set([
+  'content-type',
+  'content-length',
+  'content-encoding',
+  'transfer-encoding',
+  'cache-control',
+  'date',
+  'etag',
+  'vary',
+]);
+
 export interface ProxyOptions {
   config: AgentAuthConfig;
   auditLog?: AuditLog;
@@ -36,7 +51,7 @@ export class AuthProxy {
         this.handleRequest(req, res);
       });
 
-      this.server.listen(this.config.port, '127.0.0.1', () => {
+      this.server.listen(this.config.port, this.config.bind, () => {
         resolve();
       });
     });
@@ -168,14 +183,21 @@ export class AuthProxy {
           allowed: true,
         });
 
-        // Forward response
-        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        // Forward response with filtered headers (AA-004)
+        const safeHeaders: Record<string, string | string[] | undefined> = {};
+        for (const [key, value] of Object.entries(proxyRes.headers)) {
+          if (ALLOWED_RESPONSE_HEADERS.has(key.toLowerCase())) {
+            safeHeaders[key] = value;
+          }
+        }
+        res.writeHead(proxyRes.statusCode || 502, safeHeaders);
         proxyRes.pipe(res);
       }
     );
 
     proxyReq.on('error', (err) => {
       const durationMs = Date.now() - startTime;
+      // Log real error for operators, return generic message to agent (AA-006)
       this.audit({
         ts: new Date().toISOString(),
         backend: backendName,
@@ -187,12 +209,43 @@ export class AuthProxy {
         reason: `upstream error: ${err.message}`,
       });
 
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'upstream_error', message: err.message }));
+      if (!res.headersSent) {
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'upstream_error', message: 'upstream unavailable' }));
+      }
     });
 
-    // Pipe request body
-    req.pipe(proxyReq);
+    // Pipe request body with size limit (AA-005)
+    const maxBody = backend.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+    let received = 0;
+    req.on('data', (chunk: Buffer) => {
+      received += chunk.length;
+      if (received > maxBody) {
+        req.destroy();
+        proxyReq.destroy();
+        this.audit({
+          ts: new Date().toISOString(),
+          backend: backendName,
+          method,
+          path: targetPath,
+          status: 413,
+          allowed: false,
+          reason: `body exceeded ${maxBody} bytes`,
+        });
+        if (!res.headersSent) {
+          res.writeHead(413, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'body_too_large', message: `Request body exceeds ${maxBody} byte limit` }));
+        }
+        return;
+      }
+      proxyReq.write(chunk);
+    });
+    req.on('end', () => {
+      proxyReq.end();
+    });
+    req.on('error', () => {
+      proxyReq.destroy();
+    });
   }
 
   /**

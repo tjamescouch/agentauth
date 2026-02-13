@@ -55,11 +55,11 @@ this.server.listen(this.config.port, '127.0.0.1', () => { ... });
 
 | ID | Severity | Status |
 |----|----------|--------|
-| AA-001 | MEDIUM | Open — must fix before deploy |
-| AA-002 | MEDIUM | Open — must fix before deploy |
-| AA-003 | LOW | Open |
-| AA-004 | LOW | Open |
-| AA-005 | INFO | Open |
-| AA-006 | INFO | Open |
+| AA-001 | MEDIUM | Fixed — binds to 127.0.0.1 |
+| AA-002 | MEDIUM | Fixed — decodeURIComponent + `..` rejection |
+| AA-003 | LOW | Fixed — splits on `?` before path check |
+| AA-004 | LOW | Fixed — response header allowlist |
+| AA-005 | INFO | Fixed — configurable maxBodyBytes per backend (default 10 MB) |
+| AA-006 | INFO | Fixed — generic "upstream unavailable" returned to agent, real error in audit log only |
 
-**Recommendation**: Fix AA-001 and AA-002 before deploying agentauth in any multi-agent environment. AA-001 is a one-line fix. AA-002 requires adding URL normalization.
+All findings addressed.
