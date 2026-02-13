@@ -4,13 +4,14 @@
  * agentauth — localhost HTTP proxy for secret injection.
  *
  * Usage:
- *   agentauth [config.json]
- *   agentauth --help
+ *   agentauth <command> [options]
+ *   agentauth [config.json]          Start proxy in foreground (legacy)
  */
 
 import { loadConfig } from './config.js';
 import { AuditLog } from './audit.js';
 import { AuthProxy } from './proxy.js';
+import { cmdInit, cmdStart, cmdStop, cmdStatus, cmdDoctor, showHelp } from './cli.js';
 
 // Re-export for programmatic use
 export { loadConfig, isPathAllowed } from './config.js';
@@ -21,39 +22,13 @@ export type { AgentAuthConfig, BackendConfig } from './config.js';
 export type { AuditEntry } from './audit.js';
 export type { ProxyOptions } from './proxy.js';
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+const SUBCOMMANDS = new Set(['init', 'start', 'stop', 'status', 'doctor', 'run', 'help']);
 
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log(`agentauth — localhost HTTP proxy for secret injection
-
-Usage: agentauth [options] [config.json]
-
-Options:
-  --help, -h    Show this help
-  --port, -p    Override port from config
-  --bind, -b    Override bind address (default: 127.0.0.1)
-
-Config file format (JSON):
-  {
-    "port": 9999,
-    "auditLog": "./audit.log",
-    "backends": {
-      "anthropic": {
-        "target": "https://api.anthropic.com",
-        "headers": { "x-api-key": "$ANTHROPIC_API_KEY" },
-        "allowedPaths": ["/v1/messages"]
-      }
-    }
-  }
-
-Header values starting with $ are resolved from environment variables.
-Agents call http://localhost:PORT/{backend}/path to proxy requests.
-`);
-    return;
-  }
-
-  // Find config path
+/**
+ * Run proxy in foreground (the original behavior).
+ */
+async function runForeground(args: string[]): Promise<void> {
+  // Find config path and overrides
   let configPath = 'agentauth.json';
   let portOverride: number | null = null;
   let bindOverride: string | null = null;
@@ -116,6 +91,52 @@ Agents call http://localhost:PORT/{backend}/path to proxy requests.
   }
   if (auditLog) {
     console.log(`Audit log: ${config.auditLog}`);
+  }
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+
+  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+    showHelp();
+    return;
+  }
+
+  const command = args[0];
+  const commandArgs = args.slice(1);
+
+  switch (command) {
+    case 'init':
+      await cmdInit(commandArgs);
+      break;
+    case 'start':
+      await cmdStart(commandArgs);
+      break;
+    case 'stop':
+      await cmdStop(commandArgs);
+      break;
+    case 'status':
+      await cmdStatus(commandArgs);
+      break;
+    case 'doctor':
+      await cmdDoctor(commandArgs);
+      break;
+    case 'run':
+      await runForeground(commandArgs);
+      break;
+    case 'help':
+      showHelp();
+      break;
+    default:
+      // Legacy: treat first arg as config path → foreground mode
+      if (!command.startsWith('-')) {
+        await runForeground(args);
+      } else {
+        console.error(`Unknown command: ${command}`);
+        console.error('Run "agentauth help" for usage.');
+        process.exit(1);
+      }
+      break;
   }
 }
 
