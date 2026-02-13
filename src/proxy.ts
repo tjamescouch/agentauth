@@ -36,7 +36,7 @@ export class AuthProxy {
         this.handleRequest(req, res);
       });
 
-      this.server.listen(this.config.port, '127.0.0.1', () => {
+      this.server.listen(this.config.port, this.config.bind, () => {
         resolve();
       });
     });
